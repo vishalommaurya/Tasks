@@ -1,0 +1,40 @@
+initial_df = pd.concat(sort_dataframes_by_date(list_of_dataframes)).fillna("").reset_index(drop=True)
+
+        # ------------------- DUPLICATION LOGIC -------------------
+        # Create a temporary comparison dataframe to normalize data for matching
+        # This ensures we don't accidentally modify the original data for display
+        comparison_df = initial_df.copy()
+
+        # 1. Normalize Description: strip whitespace, lowercase, remove extra internal spaces
+        if 'Description' in comparison_df.columns:
+            comparison_df['norm_desc'] = comparison_df['Description'].astype(str).str.strip().str.lower().str.replace(r'\s+', ' ', regex=True)
+        else:
+            comparison_df['norm_desc'] = ''
+
+        # Normalize Amounts: standardize to float rounded to 2 decimals
+        # This handles cases like 1000.0 vs 1000 vs 1,000.00
+        cols_to_norm = ['Debit', 'Credit', 'Balance']
+        for col in cols_to_norm:
+            if col in comparison_df.columns:
+                comparison_df[f'norm_{col}'] = pd.to_numeric(
+                    comparison_df[col].astype(str).str.replace(',', ''), errors='coerce'
+                ).fillna(0).round(2)
+            else:
+                comparison_df[f'norm_{col}'] = 0.0
+
+        # 3. Normalize Date
+        if 'Value Date' in comparison_df.columns:
+            comparison_df['norm_date'] = comparison_df['Value Date'].astype(str).str.strip()
+        else:
+            comparison_df['norm_date'] = ''
+
+        # 4. Identify Duplicates based on NORMALIZED columns
+        # We only consider it a duplicate if Date, Description, and ALL Amounts match exactly
+        subset_cols = ['norm_date', 'norm_desc', 'norm_Debit', 'norm_Credit', 'norm_Balance']
+        
+        # Mark duplicates (keep='first' preserves the first occurrence)
+        is_duplicate = comparison_df.duplicated(subset=subset_cols, keep='first')
+
+        # Apply Filter to Original DataFrame
+        # This preserves "extra" transactions that don't match (Union behavior)
+        initial_df = initial_df[~is_duplicate].reset_index(drop=True)
