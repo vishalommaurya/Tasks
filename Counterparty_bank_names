@@ -1,0 +1,93 @@
+def add_counterparty_bank_column(df):
+    """
+    Adds a 'counterparty_bank' column to the DataFrame based on the 'Description' column.
+    Uses keyword-based substring matching with partial matching for truncated bank names.
+    Handles any narration format (UPI/NEFT/IMPS/plain text).
+    """
+    if df is None or df.empty or 'Description' not in df.columns:
+        return df
+
+    # Comprehensive bank keywords list (longest names first for priority matching)
+    # Ordered by length to ensure longer bank names are matched before shorter ones
+    bank_keywords = [
+        # Long cooperative/regional bank names
+        "THE THANE DISTRICT CENTRAL COOPERATIVE BANK","NAGPUR NAGARIK SAHAKARI BANK LTD NNSB",
+        "THE PANDHARPUR URBAN CO-OP BANK LTD","THE JALGAON PEOPLES CO-OP BANK LTD",
+        "THE CHEMBUR NAGARIK SAHAKARI BANK LTD","THANE BHARAT SAHAKARI BANK LTD",
+        "GP PARSIK SAHAKARI BANK LTD","AU SMALL FINANCE BANK (AU)","VASAI VIKAS SHAKARI BANK LTD",
+        "ABHYUDAYA CO-OP BANK LTD","SHAMRAO VITTAL CO-OP BANK","UTKHARSH SMALL FINANCE BANK",
+        "BASSEIN CATHOLIC BANK","MUNICIPAL CO-OP BANK","COSMOS CO-OP BANK","INDIA POST PAYMENTS BANK",
+        "SUMITOMO MITSUI BANKING CORPORATION",
+        # Small Finance Banks
+        "FINCARE SMALL FINANCE BANK","EQUITAS SMALL FINANCE BANK","NORTHEAST SMALL FINANCE BANK",
+        "SURYODAY SMALL FINANCE BANK","UJJIVAN SMALL FINANCE BANK","CAPITAL SMALL FINANCE BANK",
+        "SHIVALIK SMALL FINANCE BANK","UNITY SMALL FINANCE BANK","ESAF SMALL FINANCE BANK","JANA SMALL FINANCE BANK",
+        "STANDARD CHARTERED BANK",
+        # Payment Banks
+        "PAYTM PAYMENTS BANK","AIRTEL PAYMENTS BANK","JIO PAYMENTS BANK","NSDL PAYMENTS BANK",
+        # Major nationalized/private banks (full names)
+        "STATE BANK OF INDIA","CENTRAL BANK OF INDIA","UNION BANK OF INDIA","INDIAN OVERSEAS BANK",
+        "KOTAK MAHINDRA BANK","PUNJAB NATIONAL BANK","INDUSIND BANK","BANK OF MAHARASHTRA", "DHANALAXMI BANK"
+        "BANK OF BARODA","SOUTH INDIAN BANK","DBS BANK INDIA","IDFC FIRST BANK","DHANALAXMI BANK LTD",
+        "SYNDICATE BANK","SVC COOPERATIVE BANK","PUNJAB AND SIND BANK","CITY UNION BANK","TAMILNAD MERCANTILE BANK",
+        "NAINITAL BANK","BANK OF ODISHA","JAMMU AND KASHMIR BANK","LAKSHMI VILAS BANK",
+        # Common bank names (shorter variants)
+        "ICICI BANK","HDFC BANK","AXIS BANK","AXIS FINANCE","IDBI BANK","YES BANK","BANDHAN BANK",
+        "BANK OF INDIA","CANARA BANK","FEDERAL BANK","CITI BANK","KARNATAKA BANK","KARUR BANK","CENTRAL BANK",
+        "RBL BANK","SARASWAT BANK","TJSB BANK","UCO BANK","UNION BANK","DCB BANK","CSB BANK",
+        "DBS BANK", "INDIAN BANK","HSBC Bank ","DEUTSCHE BANK","BARCLAYS BANK","BANK OF AMERICA","BNP PARIBAS",
+        "MUFG BANK"
+        # very short forms:
+        "SBI", "PNB","KOTAK", "RBL", "BANDHAN", "IPPB", "PPBL", "AU SFB","CBI"
+
+    ]
+
+    def normalize_string(s):
+        """Remove spaces, underscores, hyphens for fuzzy matching"""
+        return s.replace(" ", "").replace("_", "").replace("-", "").replace("/", "")
+    
+    def get_bank_name(description):
+        if not isinstance(description, str):
+            return ""
+        
+        # 1. Split by common delimiters (/, -, multiple spaces, |, :)
+        # We don't split by single spaces to avoid breaking multi-word bank names
+        import re
+        segments = re.split(r'[/|-]| {2,}|[:|]', description)
+        
+        # 2. Clean segments
+        segments = [s.strip() for s in segments if s.strip()]
+        
+        # 3. Prioritize segments near the end (UPI/IMPS often put bank at index -2)
+        # We check from last to first since bank names are usually towards the end
+        for segment in reversed(segments):
+            seg_upper = segment.upper()
+            seg_normalized = normalize_string(seg_upper)
+            
+            # Use the same keyword matching logic from before, but scoped to the segment
+            for bank in bank_keywords:
+                bank_upper = bank.upper()  # Ensure case-insensitive matching
+                
+                # Step 1: Exact substring match (with original spacing)
+                if bank_upper in seg_upper:
+                    return bank
+                
+                # Step 2: Normalized match
+                bank_normalized = normalize_string(bank_upper)
+                if len(bank_normalized) >= 3 and bank_normalized in seg_normalized:
+                    return bank
+                
+                # Step 3: Universal Partial Match
+                min_match_len = max(4, int(len(bank_upper) * 0.6)) if len(bank_upper) > 10 else 4
+                
+                if len(bank_upper) >= 4:
+                    bank_prefix = bank_upper[:min_match_len]
+                    
+                    if len(bank_prefix) >= 3 and bank_prefix in seg_upper:
+                        return bank
+                    
+                    bank_prefix_normalized = normalize_string(bank_prefix)
+                    if len(bank_prefix_normalized) >= 3 and bank_prefix_normalized in seg_normalized:
+                        return bank
+        
+        return ""
