@@ -1,93 +1,84 @@
+
 def add_counterparty_bank_column(df):
-    """
-    Adds a 'counterparty_bank' column to the DataFrame based on the 'Description' column.
-    Uses keyword-based substring matching with partial matching for truncated bank names.
-    Handles any narration format (UPI/NEFT/IMPS/plain text).
-    """
-    if df is None or df.empty or 'Description' not in df.columns:
-        return df
-
-    # Comprehensive bank keywords list (longest names first for priority matching)
-    # Ordered by length to ensure longer bank names are matched before shorter ones
-    bank_keywords = [
-        # Long cooperative/regional bank names
-        "THE THANE DISTRICT CENTRAL COOPERATIVE BANK","NAGPUR NAGARIK SAHAKARI BANK LTD NNSB",
-        "THE PANDHARPUR URBAN CO-OP BANK LTD","THE JALGAON PEOPLES CO-OP BANK LTD",
-        "THE CHEMBUR NAGARIK SAHAKARI BANK LTD","THANE BHARAT SAHAKARI BANK LTD",
-        "GP PARSIK SAHAKARI BANK LTD","AU SMALL FINANCE BANK (AU)","VASAI VIKAS SHAKARI BANK LTD",
-        "ABHYUDAYA CO-OP BANK LTD","SHAMRAO VITTAL CO-OP BANK","UTKHARSH SMALL FINANCE BANK",
-        "BASSEIN CATHOLIC BANK","MUNICIPAL CO-OP BANK","COSMOS CO-OP BANK","INDIA POST PAYMENTS BANK",
-        "SUMITOMO MITSUI BANKING CORPORATION",
-        # Small Finance Banks
-        "FINCARE SMALL FINANCE BANK","EQUITAS SMALL FINANCE BANK","NORTHEAST SMALL FINANCE BANK",
-        "SURYODAY SMALL FINANCE BANK","UJJIVAN SMALL FINANCE BANK","CAPITAL SMALL FINANCE BANK",
-        "SHIVALIK SMALL FINANCE BANK","UNITY SMALL FINANCE BANK","ESAF SMALL FINANCE BANK","JANA SMALL FINANCE BANK",
-        "STANDARD CHARTERED BANK",
-        # Payment Banks
-        "PAYTM PAYMENTS BANK","AIRTEL PAYMENTS BANK","JIO PAYMENTS BANK","NSDL PAYMENTS BANK",
-        # Major nationalized/private banks (full names)
-        "STATE BANK OF INDIA","CENTRAL BANK OF INDIA","UNION BANK OF INDIA","INDIAN OVERSEAS BANK",
-        "KOTAK MAHINDRA BANK","PUNJAB NATIONAL BANK","INDUSIND BANK","BANK OF MAHARASHTRA", "DHANALAXMI BANK"
-        "BANK OF BARODA","SOUTH INDIAN BANK","DBS BANK INDIA","IDFC FIRST BANK","DHANALAXMI BANK LTD",
-        "SYNDICATE BANK","SVC COOPERATIVE BANK","PUNJAB AND SIND BANK","CITY UNION BANK","TAMILNAD MERCANTILE BANK",
-        "NAINITAL BANK","BANK OF ODISHA","JAMMU AND KASHMIR BANK","LAKSHMI VILAS BANK",
-        # Common bank names (shorter variants)
-        "ICICI BANK","HDFC BANK","AXIS BANK","AXIS FINANCE","IDBI BANK","YES BANK","BANDHAN BANK",
-        "BANK OF INDIA","CANARA BANK","FEDERAL BANK","CITI BANK","KARNATAKA BANK","KARUR BANK","CENTRAL BANK",
-        "RBL BANK","SARASWAT BANK","TJSB BANK","UCO BANK","UNION BANK","DCB BANK","CSB BANK",
-        "DBS BANK", "INDIAN BANK","HSBC Bank ","DEUTSCHE BANK","BARCLAYS BANK","BANK OF AMERICA","BNP PARIBAS",
-        "MUFG BANK"
-        # very short forms:
-        "SBI", "PNB","KOTAK", "RBL", "BANDHAN", "IPPB", "PPBL", "AU SFB","CBI"
-
+    """Tiered matching: 1. IFSC Regex, 2. Fast Word Lookup, 3. Normalized Fallback."""
+    if df is None or df.empty or 'Description' not in df.columns: return df
+    def norm(s): return s.replace(" ", "").replace("_", "").replace("-", "").replace("/", "").replace("\\", "")
+    bank_data = [
+        ("THE THANE DISTRICT CENTRAL COOPERATIVE BANK", ["TDCCB"]), ("NAGPUR NAGARIK SAHAKARI BANK LTD", ["NNSB"]),
+        ("THE PANDHARPUR URBAN CO-OP BANK LTD", ["PUCB"]), ("THE JALGAON PEOPLES CO-OP BANK LTD", ["JPCB", "JPCBL"]),
+        ("THE CHEMBUR NAGARIK SAHAKARI BANK LTD", ["CNSB"]), ("THANE BHARAT SAHAKARI BANK LTD", ["TBSB"]),
+        ("GP PARSIK SAHAKARI BANK LTD", ["GPSB"]), ("VASAI VIKAS SAHAKARI BANK LTD", ["VVSB"]),
+        ("ABHYUDAYA CO-OP BANK LTD", ["ABHYUDAYA", "ACBL"]), ("BASSEIN CATHOLIC CO-OP BANK", ["BCB", "BASSEIN"]),
+        ("MUNICIPAL CO-OP BANK", ["MCB"]), ("COSMOS CO-OP BANK", ["COSMOS"]), ("SARASWAT CO-OP BANK", ["SARASWAT"]),
+        ("TJSB SAHAKARI BANK", ["TJSB"]), ("SVC CO-OPERATIVE BANK", ["SVCB", "SHAMRAO VITHAL CO-OP BANK"]),
+        ("AU SMALL FINANCE BANK", ["AU SFB", "AUBANK"]), ("UTKARSH SMALL FINANCE BANK", ["USFB"]),
+        ("FINCARE SMALL FINANCE BANK", ["FSFB"]), ("EQUITAS SMALL FINANCE BANK", ["ESFB"]),
+        ("NORTHEAST SMALL FINANCE BANK", ["NESFB"]), ("SURYODAY SMALL FINANCE BANK", ["SSFB"]),
+        ("UJJIVAN SMALL FINANCE BANK", ["UJVSFB"]), ("CAPITAL SMALL FINANCE BANK", ["CSFB"]),
+        ("SHIVALIK SMALL FINANCE BANK", ["SHSFB"]), ("UNITY SMALL FINANCE BANK", ["UNITY SFB"]),
+        ("ESAF SMALL FINANCE BANK", ["ESAF"]), ("JANA SMALL FINANCE BANK", ["JANA SFB"]),
+        ("PAYTM PAYMENTS BANK", ["PPBL", "PAYTM"]), ("AIRTEL PAYMENTS BANK", ["APB", "AIRTEL"]),
+        ("JIO PAYMENTS BANK", ["JPB"]), ("NSDL PAYMENTS BANK", ["NPBL"]), ("INDIA POST PAYMENTS BANK", ["IPPB"]),
+        ("STATE BANK OF INDIA", ["SBI", "SBIN"]), ("CENTRAL BANK OF INDIA", ["CBIN"]),
+        ("UNION BANK OF INDIA", ["UBIN"]), ("INDIAN OVERSEAS BANK", ["IOBA"]),
+        ("PUNJAB NATIONAL BANK", ["PNB"]), ("BANK OF MAHARASHTRA", ["MAHB"]), ("BANK OF BARODA", ["BARB"]),
+        ("BANK OF INDIA", ["BKID"]), ("CANARA BANK", ["CNRB"]), ("UCO BANK", ["UCBA"]),
+        ("PUNJAB AND SIND BANK", ["PSIB"]), ("INDIAN BANK", ["IDIB"]), ("ICICI BANK", ["ICIC"]),
+        ("HDFC BANK", ["HDFC"]), ("AXIS BANK", ["UTIB"]), ("KOTAK MAHINDRA BANK", ["KKBK"]),
+        ("INDUSIND BANK", ["INDB"]), ("YES BANK", ["YESB"]), ("IDFC FIRST BANK", ["IDFB"]),
+        ("IDBI BANK", ["IBKL"]), ("RBL BANK", ["RATN"]), ("FEDERAL BANK", ["FDRL"]),
+        ("BANDHAN BANK", ["BDBL"]), ("SOUTH INDIAN BANK", ["SIBL"]), ("KARNATAKA BANK", ["KARB"]),
+        ("KARUR VYSYA BANK", ["KVBL"]), ("CITY UNION BANK", ["CUB"]), ("TAMILNAD MERCANTILE BANK", ["TMBL"]),
+        ("NAINITAL BANK", ["NTBL"]), ("JAMMU AND KASHMIR BANK", ["JAKA"]), ("DCB BANK", ["DCBL"]),
+        ("CSB BANK", ["CSBK"]), ("CITI BANK", ["CITI"]), ("HSBC BANK", ["HSBC"]),
+        ("DBS BANK", ["DBSS"]), ("STANDARD CHARTERED BANK", ["SCBL"]), ("DEUTSCHE BANK", ["DEUT"]),
+        ("BARCLAYS BANK", ["BARC"]), ("BANK OF AMERICA", ["BOFA"]), ("BNP PARIBAS", ["BNPA"]),
+        ("MUFG BANK", ["MUFG"]), ("SUMITOMO MITSUI BANKING CORPORATION", ["SMBC"]),
+        ("DHANLAXMI BANK", ["DLXB"]), ("BANK OF ODISHA", ["BOSL"]), ("SARASWAT BANK", ["SARASWAT"]),
+        ("BHARAT CO-OPERATIVE BANK", ["BCBM"]),("KARNATAKA GRAMIN BANK", ["KGBL"]), ("SYNDICATE BANK", ["SYNB"]),
+        ("DHANALAXMI BANK", ["DLXB"])
     ]
-
-    def normalize_string(s):
-        """Remove spaces, underscores, hyphens for fuzzy matching"""
-        return s.replace(" ", "").replace("_", "").replace("-", "").replace("/", "")
-    
-    def get_bank_name(description):
-        if not isinstance(description, str):
-            return ""
-        
-        # 1. Split by common delimiters (/, -, multiple spaces, |, :)
-        # We don't split by single spaces to avoid breaking multi-word bank names
+    words, ifscs = {}, {}
+    for canon, aliases in bank_data:
+        cup = canon.upper()
+        for t in [canon] + aliases:
+            tup = t.upper(); words[tup] = words[norm(tup)] = cup
+        for a in aliases:
+            if 3 <= len(a) <= 6 and a.isupper(): ifscs[a] = cup
+    def get_bank(desc):
+        if not isinstance(desc, str): return ""
         import re
-        segments = re.split(r'[/|-]| {2,}|[:|]', description)
-        
-        # 2. Clean segments
-        segments = [s.strip() for s in segments if s.strip()]
-        
-        # 3. Prioritize segments near the end (UPI/IMPS often put bank at index -2)
-        # We check from last to first since bank names are usually towards the end
-        for segment in reversed(segments):
-            seg_upper = segment.upper()
-            seg_normalized = normalize_string(seg_upper)
-            
-            # Use the same keyword matching logic from before, but scoped to the segment
-            for bank in bank_keywords:
-                bank_upper = bank.upper()  # Ensure case-insensitive matching
-                
-                # Step 1: Exact substring match (with original spacing)
-                if bank_upper in seg_upper:
-                    return bank
-                
-                # Step 2: Normalized match
-                bank_normalized = normalize_string(bank_upper)
-                if len(bank_normalized) >= 3 and bank_normalized in seg_normalized:
-                    return bank
-                
-                # Step 3: Universal Partial Match
-                min_match_len = max(4, int(len(bank_upper) * 0.6)) if len(bank_upper) > 10 else 4
-                
-                if len(bank_upper) >= 4:
-                    bank_prefix = bank_upper[:min_match_len]
-                    
-                    if len(bank_prefix) >= 3 and bank_prefix in seg_upper:
-                        return bank
-                    
-                    bank_prefix_normalized = normalize_string(bank_prefix)
-                    if len(bank_prefix_normalized) >= 3 and bank_prefix_normalized in seg_normalized:
-                        return bank
-        
+        du = desc.upper()
+        segs = [s.strip() for s in re.split(r'[\\/|@:]|[ ]{2,}', du) if s.strip()]
+        for p in [1, 2]: # Pass 1: Strict/Exact, Pass 2: Aggressive Fallback
+            for seg in reversed(segs):
+                sn = norm(seg)
+                if p == 1:
+                    # Layer 1: IFSC (Handles standard 11 chars, plus spaces)
+                    m = re.search(r'\b([A-Z]{4})0\s*[0-9A-Z]{6}\b', seg)
+                    if m and m.group(1) in ifscs: return ifscs[m.group(1)]
+                    # Layer 2: Fast Lookup (Improved splitting with backslash support)
+                    if seg in words or sn in words: return words.get(seg) or words[sn]
+                    for w in reversed(re.split(r'[\\ \-]', seg)):
+                        w = w.strip()
+                        if w in words or norm(w) in words: return words.get(w) or words[norm(w)]
+                else: # p == 2
+                    # Layer 2.5: Broader IFSC/Alias check (e.g., "UTIB" anywhere)
+                    for a, c in ifscs.items():
+                        if a in seg: return c
+                    # Layer 3: Fuzzy Fallback (Dynamic threshold to avoid "INDIAN" false positives)
+                    for canon, aliases in bank_data:
+                        cup = canon.upper()
+                        for search in [canon] + aliases:
+                            sup = search.upper(); snm = norm(sup)
+                            if (len(snm) > 4 and snm in sn): return cup
+                            if len(sup) > 7:
+                                # Dynamic threshold: 80% for short names (<15 chars) to avoid 
+                                # common words like "INDIAN", 60% for longer names.
+                                thresh, mn = (0.8, 8) if len(sup) < 15 else (0.6, 6)
+                                pre = sup[:max(mn, int(len(sup)*thresh))]
+                                if pre in seg or (len(norm(pre)) >= 5 and norm(pre) in sn): return cup
         return ""
+    df = df.copy()
+    df['counterparty_bank'] = df['Description'].apply(get_bank)
+    return df
