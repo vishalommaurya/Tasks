@@ -1,0 +1,106 @@
+common_functions.py
+Added these helper functions before 
+extract_account_details:-
+
+def extract_statement_period_from_text(text):
+    """
+    Scans text for patterns like 'From 01/01/2024 to 31/12/2024' 
+    or 'Statement Period: 01 Apr 2025 - 31 Mar 2026'
+    """
+    if not text:
+        return None, None
+        
+    # Pattern 1: DD Mon YYYY to DD Mon YYYY (e.g., 01 Apr 2025 To 31 Dec 2025)
+    range_pattern = re.compile(
+        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\s+(?:to|-|To)\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})', 
+        re.IGNORECASE
+    )
+    # Pattern 2: DD/MM/YYYY to DD/MM/YYYY
+    numeric_pattern = re.compile(
+        r'(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s+(?:to|-|To)\s+(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})'
+    )
+    
+    # Try finding matches in the text
+    match = range_pattern.search(text) or numeric_pattern.search(text)
+    if match:
+        return match.group(1), match.group(2)
+        
+    # Fallback: Find all full dates and take the earliest and latest
+    full_dates = re.findall(r'\b\d{1,2}[/.-]\d{1,2}[/.-]\d{4}\b', text)
+    if len(full_dates) >= 2:
+        try:
+            parsed_dates = sorted([datetime.strptime(d.replace('.', '-').replace('/', '-'), '%d-%m-%Y') for d in full_dates])
+            return parsed_dates[0].strftime('%d-%m-%Y'), parsed_dates[-1].strftime('%d-%m-%Y')
+        except:
+            pass
+            
+    return None, None
+
+
+def resolve_missing_year(date_str, start_dt, end_dt):
+    """
+    Resolves year for strings like '04 April' or 'Apr 04'.
+    Checks start_dt.year and end_dt.year to see which candidate falls in range.
+    """
+    try:
+        from dateutil import parser
+        parsed = parser.parse(date_str) 
+        m, d = parsed.month, parsed.day
+        
+        # Try candidate years from the statement period
+        candidate_years = sorted({start_dt.year, end_dt.year})
+        for year in candidate_years:
+            try:
+                candidate = datetime(year, m, d)
+                if start_dt <= candidate <= end_dt:
+                    return candidate
+            except ValueError:
+                continue
+    except Exception as e:
+        print(f"[DEBUG] Error resolving year for '{date_str}': {e}")
+        
+    return None
+
+
+2) Code of Extraction:
+
+def cleaning(new_df, start_date=None, end_date=None):
+    from backend.common_functions import resolve_missing_year
+    
+    # Parse provided period for context
+    start_dt, end_dt = None, None
+    if start_date and end_date:
+        try:
+            start_dt = pd.to_datetime(start_date, dayfirst=True)
+            end_dt = pd.to_datetime(end_date, dayfirst=True)
+        except:
+            pass
+
+    def try_parsing_date(text):
+        text = str(text).strip()
+        
+        # 1. Try Standard Full Formats
+        formats_to_try = [
+            "%d/%m/%Y", "%d-%m-%Y", "%d %b %Y", "%d %B %Y",
+            "%d/%m/%y", "%d-%m-%y", "%d %b %y",
+            "%Y-%m-%d", "%m/%d/%Y", "%d.%m.%Y", "%d.%m.%y"
+        ]
+        for fmt in formats_to_try:
+            try: return pd.to_datetime(text, format=fmt)
+            except ValueError: continue
+                
+        # 2. Yearless Date Resolution (e.g. "04 April")
+        if start_dt and end_dt:
+            yearless_formats = ["%d %B", "%d %b", "%B %d", "%b %d", "%d/%m", "%d-%m"]
+            for fmt in yearless_formats:
+                try:
+                    dt_val = resolve_missing_year(text, start_dt, end_dt)
+                    if dt_val: return pd.to_datetime(dt_val)
+                except: continue
+        return pd.NaT
+
+    # ... remaining cleaning logic ...
+    df["Value Date"] = df["Value Date"].apply(try_parsing_date)
+    df = df.dropna(subset=["Value Date"])
+    df["Value Date"] = df["Value Date"].dt.strftime("%d-%m-%Y")
+    # ...
